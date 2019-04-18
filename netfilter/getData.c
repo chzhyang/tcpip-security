@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
     /* Now fill in the ICMP fields */
     icmphead->icmp_type = ICMP_ECHO;
     icmphead->icmp_code = 0x5B;
-//44=8+4+16+16
+    //44=8+4+16+16
     icmphead->icmp_cksum = checksum(44, (unsigned short *)icmphead);
     
     /* Finally, send the packet */
