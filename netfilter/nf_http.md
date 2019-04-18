@@ -4,6 +4,7 @@ ubuntu 18.04 kernel 4.15
 
 ### target端的操作
 
+源文件：nf_http.c  Makefile  
 #### 1. 内核模块的操作
 
 * 头文件 linux/kernel.h  linux/module.h
@@ -282,7 +283,7 @@ ubuntu 18.04 kernel 4.15
  
  ### hack端的操作 
  
-
+源文件：getData.c    
 * 向target发送特殊的icmp包  
 
     raw socket 编程, 发送icmp数据包 ，保证足够的长度盛放target返回的数据。 
