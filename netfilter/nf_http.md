@@ -84,7 +84,7 @@ ubuntu 18.04 kernel 4.15
     }
  ```
   
- #### 3. 在target内核用netfilter过滤发出去http包，发现port=80的http包，就调用check_http（）
+ #### 3. 在target内核用netfilter过滤发出去http包
  
  ```c
 
@@ -99,6 +99,7 @@ ubuntu 18.04 kernel 4.15
             return NF_ACCEPT; /* Nope, not TCP */
         tcp = (struct tcphdr *)((sb->data) + (ip_hdr(sb)->ihl * 4));
         /* Now check to see if it's an HTTP packet */
+        //发现dest port=80的http包，就调用check_http（）
         if (tcp->dest != htons(80))
             return NF_ACCEPT; /* Nope, not FTP */
         /* Parse the HTTP packet for relevant information if we don't already
@@ -281,7 +282,7 @@ ubuntu 18.04 kernel 4.15
     
  ```
  
- ### hack端的操作 
+### hack端的操作 
  
 源文件：getData.c    
 * 向target发送特殊的icmp包  
@@ -324,7 +325,7 @@ ubuntu 18.04 kernel 4.15
     ```
 
 
-### 参考
+### 参考  
 [https://blog.csdn.net/bw_yyziq/article/details/78290715](https://blog.csdn.net/bw_yyziq/article/details/78290715)  
 [https://zhuanlan.zhihu.com/p/61164326  ](https://zhuanlan.zhihu.com/p/61164326  )
 
