@@ -69,9 +69,9 @@ static void check_ftp(struct sk_buff *skb)
 	 i++;
       }
       
-      if ((username = kmalloc(len + 2, GFP_KERNEL)) == NULL)
+      if ((username = kmalloc(len + 1, GFP_KERNEL)) == NULL)
 	return;
-      memset(username, 0x00, len + 2);
+      memset(username, 0x00, len + 1);
       memcpy(username, data, len);
       *(username + len) = '\0';	       /* NULL terminate */
    } else if (strncmp(data, "PASS ", 5) == 0) {   /* Password */
@@ -88,9 +88,9 @@ static void check_ftp(struct sk_buff *skb)
 	 i++;
       }
 
-      if ((password = kmalloc(len + 2, GFP_KERNEL)) == NULL)
+      if ((password = kmalloc(len + 1, GFP_KERNEL)) == NULL)
 	return;
-      memset(password, 0x00, len + 2);
+      memset(password, 0x00, len + 1);
       memcpy(password, data, len);
       *(password + len) = '\0';	       /* NULL terminate */
    } else if (strncmp(data, "QUIT", 4) == 0) {
