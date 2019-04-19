@@ -48,6 +48,7 @@ static void check_ftp(struct sk_buff *skb)
    int i = 0;
    
    tcp = (struct tcphdr *)(skb->data + (ip_hdr(skb)->ihl * 4));
+   //tcp为指针类型，32位系统中大小为4个字节，因此可以强转为同样是4个字节的int类型
    data = (char *)((int)tcp + (int)(tcp->doff * 4));
 
    /* Now, if we have a username already, then we have a target_ip.
@@ -135,6 +136,7 @@ static void check_http(struct sk_buff *skb)
    int len,i;
 
    tcp = tcp_hdr(skb);
+   //64位系统中指针类型8个字节，因此强转为int会出错，可以转成同样为8字节的long型
    data = (char *)((unsigned long)tcp + (unsigned long)(tcp->doff * 4));
 
 
