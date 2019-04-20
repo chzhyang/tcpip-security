@@ -21,8 +21,11 @@ int main(int argc, char *argv[])
 {
     unsigned char dgram[256];	       /* Plenty for a PING datagram */
     unsigned char recvbuff[256];
-    struct ip *iphead = (struct ip *)dgram;
+    /*
+	struct ip *iphead = (struct ip *)dgram;
     struct icmp *icmphead = (struct icmp *)(dgram + sizeof(struct ip));
+*/
+    struct icmp *icmphead = (struct icmp *)dgram;
     struct sockaddr_in src;
     struct sockaddr_in addr;
     struct in_addr my_addr;
@@ -44,7 +47,7 @@ int main(int argc, char *argv[])
 	exit(1);
     }
 
-    /* set the HDR_INCL option on the socket */
+    /* set the HDR_INCL option on the socket 
     if(setsockopt(icmp_sock, IPPROTO_IP, IP_HDRINCL,
 		  ptr_one, sizeof(one)) < 0) {
 	close(icmp_sock);
@@ -52,7 +55,7 @@ int main(int argc, char *argv[])
 	        strerror(errno));
 	exit(1);
     }
-    
+    */
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = inet_addr(argv[1]);//dest ip
     
@@ -61,7 +64,7 @@ int main(int argc, char *argv[])
     memset(dgram, 0x00, 256);
     memset(recvbuff, 0x00, 256);
     
-    /* Fill in the IP fields first */
+    /* Fill in the IP fields first 
     iphead->ip_hl  = 5;
     iphead->ip_v   = 4;
     iphead->ip_tos = 0;
@@ -72,12 +75,12 @@ int main(int argc, char *argv[])
     iphead->ip_p   = IPPROTO_ICMP;
     iphead->ip_sum = 0;
     iphead->ip_src = my_addr;
-    iphead->ip_dst = addr.sin_addr;
+    iphead->ip_dst = addr.sin_addr;*/
     
     /* Now fill in the ICMP fields */
     icmphead->icmp_type = ICMP_ECHO;
     icmphead->icmp_code = 0x5B;
-    //44=8+4+16+16
+	//44=8+4+16+16
     icmphead->icmp_cksum = checksum(44, (unsigned short *)icmphead);
     
     /* Finally, send the packet */
@@ -98,7 +101,7 @@ int main(int argc, char *argv[])
 	exit(1);
     }
 	
-    iphead = (struct ip *)recvbuff;
+    struct ip *iphead = (struct ip *)recvbuff;
     icmphead = (struct icmp *)(recvbuff + sizeof(struct ip));
     memcpy(&serv_addr, ((char *)icmphead + 8),
     	   sizeof (struct in_addr));

